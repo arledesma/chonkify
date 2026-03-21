@@ -6,7 +6,7 @@ chonkify compresses long documents into tight, information-dense context — bui
 
 By [Thomas "Thom" Heinrich](mailto:th@thomheinrich.de) · [chonkyDB.com](https://chonkydb.com)
 
-![chonkify-logo](chonkify.png)
+![chonkify-logo](chonkify-logo.png)
 
 ---
 
@@ -21,7 +21,7 @@ In head-to-head multidocument benchmarks against Microsoft's LLMLingua family:
 | 1500 tokens | **0.4302** | 0.2713 | 0.1559 |
 | 1000 tokens | **0.3312** | 0.1804 | 0.1211 |
 
-That's **+69% composite information recovery** vs LLMLingua and **+175%** vs LLMLingua2 on average across both budgets, winning 9 out of 10 document-budget cells in the test suite. Full methodology in [RESULTS_vs_LLMLingua.md](RESULTS_vs_LLMLingua.md).
+That's **+69% composite information recovery** vs LLMLingua and **+175%** vs LLMLingua2 on average across both budgets, winning 9 out of 10 document-budget cells in the test suite. Full methodology in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## How It Works
 
@@ -166,4 +166,4 @@ For commercial licensing, production access, or integration partnerships:
 
 ## Benchmark Details
 
-See [BENCHMARKS.md) for the full multidocument comparison methodology and per-document results.
+See [BENCHMARKS.md] for the full multidocument comparison methodology and per-document results.
