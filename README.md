@@ -173,6 +173,10 @@ chonkify is proprietary software. The current release is licensed for **evaluati
 For commercial licensing, production access, or integration partnerships:
 **th@chonkydb.com**
 
+## Compression Quality by Document Type
+
+See [COMPRESSION_REVIEW.md](COMPRESSION_REVIEW.md) for a detailed analysis of how chonkify performs on different document categories, including recommended compression ranges and mitigation strategies for rule-dense content like agentic system prompts.
+
 ## Development
 
 See [DEVELOPING.md](DEVELOPING.md) for environment setup, project structure, and how the uv extras work.
