@@ -12,7 +12,7 @@ However, the review exposed a **category limitation**: documents where nearly ev
 - **Tool usage policy was disproportionately lost.** The algorithm treated behavioral rules around tool use as redundant relative to higher-level instructions. In modern agentic architectures where tool schemas are provided separately via the API's `tools` parameter, the prompt content governing tools is *usage policy* — not definitions. The agent retains full knowledge of what tools exist and their parameters; what it loses is the *when*, *why*, and *in what order* guidance.
 - **The compression ceiling depends on prompt architecture.** When tool schemas live outside the prompt, more of the prompt's content is policy rather than definition, and the safe compression range shifts upward. For prompts that embed tool definitions inline, the ceiling is lower.
 
-**Recommendation:** For agentic/instructional prompts, a lower target token budget (closer to 40-50% of original) or a domain-aware preservation mode would produce safer results. For prompts where tool schemas are provided via the API, up to 60% reduction may be achievable. For narrative, analytical, or multi-document summarization workloads — chonkify's primary design target — the 70%+ compression range remains well-suited.
+**Recommendation:** Pure extractive compression is insufficient for agentic prompts at any budget in the 40-60% range — a sweep across that range found no level that preserved all safety-critical rules. However, a **hybrid approach** — compressing to ~55% then manually restoring ~100-150 tokens of consistently-dropped rules (tool-call discipline, ordering directives, human-review handoff rules) — produces a production-viable result at ~60% of original size. For narrative, analytical, or multi-document summarization workloads — chonkify's primary design target — the 70%+ compression range remains well-suited.
 
 ## Review Methodology
 
@@ -71,6 +71,52 @@ The test document's tool schemas were provided via the API, so the compressed pr
 - **Platform-specific prohibitions.** Rules preventing certain actions on certain platforms were dropped.
 - **Action sequencing logic.** The rationale for ordering response steps was absent, leaving the agent to guess.
 - **Scoring methodology.** Modifier examples and the framework for calculating decision scores were stripped.
+
+## Budget Sweep: 40-60% Range
+
+To determine whether a safe compression level exists for the test document, the original was compressed at every 5% interval from 40% to 60% of the original token count. Each compressed version was evaluated by 2 independent agents (Opus for adequacy ratings, Sonnet for gap analysis), totaling 10 evaluations.
+
+### Adequacy Ratings by Requirement
+
+| Requirement | 40% | 45% | 50% | 55% | 60% |
+| - | - | - | - | - | - |
+| Workflow ordering | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| Tool-call ordering | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| Tool-call discipline | PARTIAL | PARTIAL | PARTIAL | PARTIAL | MISSING |
+| Output template | PARTIAL | PARTIAL | PRESERVED | PRESERVED | PRESERVED |
+| Precondition rules | PRESERVED | PRESERVED | PRESERVED | PRESERVED | PRESERVED |
+| Platform prohibitions | PRESERVED | PRESERVED | PRESERVED | PRESERVED | PRESERVED |
+| Action sequencing | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| **Verdict** | NOT ADEQUATE | NEEDS RESTORATION | NEEDS RESTORATION | NEEDS RESTORATION | NEEDS RESTORATION |
+
+### Production Trust Verdicts
+
+All 5 gap-check agents returned **NOT adequate for autonomous production use** across the entire 40-60% range. The consistent blockers were:
+
+1. **Tool-call discipline rules** — never preserved at any budget level. The short, high-density rules capping tool calls per input and mandating short time ranges were consistently scored as low-diversity by the CPC/MMR algorithm and dropped.
+2. **Tool-call ordering ("retrieve context first")** — never fully preserved. The imperative "always call this first" directive was flattened into implicit context at every compression level.
+3. **Human-review handoff rules** — lost or unanchored at every level. The instruction to flag high-risk scenarios for human review was consistently omitted.
+
+### What Improves with Budget
+
+Precondition rules and platform-specific prohibitions are **fully preserved from 40% onward** — the algorithm correctly prioritizes these as high-information-density, unique content.
+
+Output template quality improves steadily: PARTIAL at 40-45%, PRESERVED from 50% onward.
+
+Action sequencing improves from MISSING at 40% to PARTIAL at 45%+, but never reaches PRESERVED.
+
+### Recommended Approach: Hybrid Compression
+
+Since no pure compression level produces a production-safe result, but the 55-60% range preserves most requirements, the recommended approach is:
+
+1. **Compress to ~55% budget** — preserves preconditions, platform rules, output templates, and most workflow structure.
+2. **Manually append the 3 missing rule categories** (~100-150 tokens):
+   - Tool-call discipline caps
+   - Explicit tool ordering directive
+   - Human-review handoff rules instruction
+3. **Result:** a prompt at roughly 60% of original size that passes all adequacy requirements.
+
+This hybrid approach captures the token savings of compression while protecting the specific rules that extractive algorithms consistently undervalue.
 
 ## Guidance for Practitioners
 
