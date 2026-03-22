@@ -146,6 +146,15 @@ Device options: `cpu`, `cuda`, `cuda:0`, `mps`.
 
 Validated with `sentence-transformers 5.1.0` and `torch 2.8.0+cu128` on NVIDIA RTX 3090. Cold-cache run: ~13s. Warm-cache run: ~6s. Model footprint: ~419 MB. With `HF_HUB_OFFLINE=1`, the local backend runs fully air-gapped once cached.
 
+Also validated with `sentence-transformers 5.3.0` on NVIDIA GeForce RTX 5090 (32 GB):
+
+| Torch | Cold run | Warm run (avg) |
+| - | - | - |
+| `2.10.0+cu128` | ~0.47s | ~0.02s |
+| `2.10.0+cu130` | ~0.43s | ~0.02s |
+
+Note: CUDA 12.4 (`torch 2.6.0+cu124`) does not support the RTX 5090 (Blackwell / sm_120). Use `cu128` or `cu130` for Blackwell GPUs.
+
 ## Output Metadata
 
 The optional `--metadata-out` JSON includes:
