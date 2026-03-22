@@ -164,6 +164,10 @@ chonkify is proprietary software. The current release is licensed for **evaluati
 For commercial licensing, production access, or integration partnerships:
 **th@chonkydb.com**
 
+## Development
+
+See [DEVELOPING.md](DEVELOPING.md) for environment setup, project structure, and how the uv extras work.
+
 ## Benchmark Details
 
-See [BENCHMARKS.md] for the full multidocument comparison methodology and per-document results.
+See [BENCHMARKS.md](BENCHMARKS.md) for the full multidocument comparison methodology and per-document results.

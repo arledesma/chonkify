@@ -6,6 +6,7 @@ Run this file after installing the bundled wheel in the same folder.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -276,6 +277,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the standard chonkify workflow and print both text and KPIs."""
+
+    if importlib.util.find_spec("dotenv") is not None:
+        from dotenv import load_dotenv
+        load_dotenv()
 
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)

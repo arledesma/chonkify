@@ -23,6 +23,9 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["sentence-transformers>=3.0.0"]
+local-cu124 = ["sentence-transformers>=3.0.0", "torch>=2.5.1"]
+local-cu128 = ["sentence-transformers>=3.0.0", "torch>=2.8.0"]
+local-cu130 = ["sentence-transformers>=3.0.0", "torch>=2.9.1"]
 
 [project.scripts]
 chonkify = "chonkify.cli:run"
@@ -33,3 +36,41 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chonkify"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "local" },
+        { extra = "local-cu124" },
+        { extra = "local-cu128" },
+        { extra = "local-cu130" },
+    ],
+]
+
+[tool.uv.sources]
+chonkify = { workspace = true }
+torch = [
+    { index = "pytorch-cu124", extra = "local-cu124" },
+    { index = "pytorch-cu128", extra = "local-cu128" },
+    { index = "pytorch-cu130", extra = "local-cu130" },
+]
+
+[dependency-groups]
+dev = [
+    "python-dotenv>=1.2.2",
+]
