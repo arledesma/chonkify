@@ -492,47 +492,75 @@ def _select_cpc_mmr_units(
     if not units or not unit_vectors:
         return []
 
+    if int(token_budget) < 0:
+        return []
+
     # Normalize all vectors
     normed_units = [_normalize_vector(v) for v in unit_vectors]
     normed_keys = [_normalize_vector(v) for v in key_vectors] if key_vectors else []
 
-    # Compute relevance scores: max cosine similarity to any key sentence
-    relevance_scores: list[float] = []
-    for unit_vec in normed_units:
-        if normed_keys:
-            max_sim = max(_cosine(unit_vec, kv) for kv in normed_keys)
-        else:
-            max_sim = 0.0
-        relevance_scores.append(max_sim)
-
-    selected: list[int] = []
-    selection_order: list[int] = []
-    used_tokens = 0
     newline_cost = _token_count("\n\n", encoder)
-    remaining = set(range(len(units)))
+    selected: list[int] = []
+    used_tokens = 0
+    max_redundancy: list[float] = [0.0] * len(units)
+    selection_order: dict[int, int] = {}
+    score_tuples: dict[int, tuple[float, float, float]] = {}
 
+    def try_add(idx: int) -> bool:
+        nonlocal used_tokens
+        unit = units[idx]
+        cost = unit.token_count + newline_cost
+        if used_tokens + cost > token_budget:
+            if selected:
+                return False
+        selected.append(idx)
+        selection_order[idx] = len(selected) - 1
+        used_tokens += cost
+        candidate_vector = normed_units[idx]
+        for sel_idx in selected:
+            sim = _cosine(candidate_vector, normed_units[sel_idx])
+            if sim > max_redundancy[idx]:
+                max_redundancy[idx] = sim
+        return True
+
+    # Pre-compute relevance scores: max cosine similarity to any key sentence
+    n = len(units)
+    relevance_scores: list[float] = []
+    for i in range(n):
+        if normed_keys:
+            relevance_scores.append(max(_cosine(normed_units[i], kv) for kv in normed_keys))
+        else:
+            relevance_scores.append(0.0)
+
+    # Sort candidates by relevance, force-select the top one first
+    sorted_by_relevance = sorted(range(n), key=lambda idx: relevance_scores[idx],
+                                 reverse=True)
+    try_add(sorted_by_relevance[0])
+    first = sorted_by_relevance[0]
+    score_tuples[first] = (relevance_scores[first], relevance_scores[first], 0.0)
+
+    # Build remaining set (all indices not yet selected)
+    remaining = set(range(n))
+    remaining.discard(first)
+
+    # Main greedy MMR loop
     while remaining:
         best_index = -1
         best_score = -float("inf")
 
-        for idx in remaining:
+        for idx in list(remaining):
             unit = units[idx]
-            cost = unit.token_count + (newline_cost if selected else 0)
+            cost = unit.token_count + newline_cost
             if used_tokens + cost > token_budget:
-                continue
+                if selected:
+                    remaining.discard(idx)
+                    continue
 
-            cand_relevance = relevance_scores[idx]
-
-            # Compute max redundancy with already selected units
-            max_redundancy = 0.0
-            cand_norm = normed_units[idx]
-            for sel_idx in selected:
-                sim = _cosine(cand_norm, normed_units[sel_idx])
-                if sim > max_redundancy:
-                    max_redundancy = sim
+            relevance = relevance_scores[idx]
+            redundancy = max_redundancy[idx]
 
             # CPC/MMR objective: balance relevance vs redundancy
-            objective = lambda_relevance * cand_relevance - (1.0 - lambda_relevance) * max_redundancy
+            objective = lambda_relevance * relevance - (1.0 - lambda_relevance) * redundancy
 
             if objective > best_score:
                 best_score = objective
@@ -541,17 +569,31 @@ def _select_cpc_mmr_units(
         if best_index < 0:
             break
 
-        unit = units[best_index]
-        cost = unit.token_count + (newline_cost if selected else 0)
-        used_tokens += cost
-        selected.append(best_index)
-        selection_order.append(best_index)
+        if not try_add(best_index):
+            remaining.discard(best_index)
+            continue
+
+        score_tuples[best_index] = (
+            relevance_scores[best_index],
+            max_redundancy[best_index],
+            best_score,
+        )
         remaining.discard(best_index)
 
-    # Build SelectedUnit results in document order for output, but record selection rank
+    # Sort selected indices into document order
+    selected.sort()
+
+    # Build SelectedUnit results
     result: list[SelectedUnit] = []
-    for rank, idx in enumerate(selection_order):
+    for idx in selected:
         unit = units[idx]
+        rank = selection_order[idx]
+        if idx in score_tuples:
+            rel_score, red_score, obj_score = score_tuples[idx]
+        else:
+            rel_score = relevance_scores[idx]
+            red_score = max_redundancy[idx]
+            obj_score = lambda_relevance * rel_score - (1.0 - lambda_relevance) * red_score
         result.append(
             SelectedUnit(
                 unit_id=unit.unit_id,
@@ -562,36 +604,10 @@ def _select_cpc_mmr_units(
                 document_index=unit.document_index,
                 unit_index=unit.unit_index,
                 selection_rank=rank + 1,
-                relevance_score=relevance_scores[idx],
-                redundancy_score=0.0,
-                objective_score=best_score if rank == len(selection_order) - 1 else 0.0,
+                relevance_score=rel_score,
+                redundancy_score=red_score,
+                objective_score=obj_score,
             )
-        )
-
-    # Re-score redundancy and objective for each selected unit
-    for i, sel_unit_idx in enumerate(selection_order):
-        cand_norm = normed_units[sel_unit_idx]
-        max_red = 0.0
-        for j, other_idx in enumerate(selection_order):
-            if i == j:
-                continue
-            sim = _cosine(cand_norm, normed_units[other_idx])
-            if sim > max_red:
-                max_red = sim
-        obj = lambda_relevance * relevance_scores[sel_unit_idx] - (1.0 - lambda_relevance) * max_red
-        old = result[i]
-        result[i] = SelectedUnit(
-            unit_id=old.unit_id,
-            source_id=old.source_id,
-            source_name=old.source_name,
-            text=old.text,
-            token_count=old.token_count,
-            document_index=old.document_index,
-            unit_index=old.unit_index,
-            selection_rank=old.selection_rank,
-            relevance_score=old.relevance_score,
-            redundancy_score=max_red,
-            objective_score=obj,
         )
 
     return result
