@@ -1,6 +1,6 @@
 [project]
 name = "chonkify"
-version = "0.2.2"
+version = "0.3.0"
 description = "Extractive document compression that preserves what matters."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ dependencies = [
     "openai>=1.30.0",
     "tiktoken>=0.7.0",
     "pypdf>=4.2.0",
+    "wtpsplit>=2.2.0",
 ]
 
 [project.optional-dependencies]

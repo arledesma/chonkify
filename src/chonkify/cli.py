@@ -12,6 +12,7 @@ from chonkify.backends import (
     build_openai_compatible_embedding_provider_from_env,
     build_openai_embedding_provider_from_env,
 )
+from chonkify.document_ai import DEFAULT_DOCUMENT_MODEL, build_default_document_structurer_from_env
 from chonkify.engine import compress_documents
 from chonkify.io import load_documents, write_json_output, write_text_output
 from chonkify.telemetry import configure_logging, log_event
@@ -192,6 +193,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional cache folder for local SentenceTransformer weights.",
     )
     compress.add_argument(
+        "--document-model",
+        type=str,
+        default=None,
+        help=f"Local Ollama model for document structuring; defaults to {DEFAULT_DOCUMENT_MODEL}.",
+    )
+    compress.add_argument(
+        "--document-ollama-base-url",
+        type=str,
+        default=None,
+        help="Optional override for CHONKIFY_DOCUMENT_OLLAMA_BASE_URL / OLLAMA_HOST.",
+    )
+    compress.add_argument(
+        "--document-timeout-seconds",
+        type=float,
+        default=None,
+        help="Optional timeout override for the local document-structuring model.",
+    )
+    compress.add_argument(
+        "--document-max-input-tokens",
+        type=int,
+        default=None,
+        help="Optional per-document input token cap for local structuring.",
+    )
+    compress.add_argument(
         "--verbose",
         action="store_true",
         help="Enable debug logging.",
@@ -245,9 +270,21 @@ def build_embedding_provider_from_args(args: argparse.Namespace) -> EmbeddingPro
     raise ValueError(f"Unsupported embedding backend: {args.embedding_backend}")
 
 
+def build_document_structurer_from_args(args: argparse.Namespace):
+    """Construct the local document-structuring runtime from CLI arguments."""
+
+    return build_default_document_structurer_from_env(
+        model_name=args.document_model,
+        ollama_base_url=args.document_ollama_base_url,
+        timeout_seconds=args.document_timeout_seconds,
+        max_input_tokens=args.document_max_input_tokens,
+    )
+
+
 def _handle_compress(args: argparse.Namespace) -> int:
     logger = configure_logging(verbose=args.verbose, json_logs=args.json_logs)
     provider = build_embedding_provider_from_args(args)
+    document_structurer = build_document_structurer_from_args(args)
     documents = load_documents(args.inputs, input_format=args.input_format)
     request = CompressionRequest(
         target_tokens=args.target_tokens,
@@ -263,8 +300,14 @@ def _handle_compress(args: argparse.Namespace) -> int:
         input_count=len(documents),
         target_tokens=request.target_tokens,
         provider=provider.name,
+        document_structurer=document_structurer.name,
     )
-    result = compress_documents(documents=documents, request=request, provider=provider)
+    result = compress_documents(
+        documents=documents,
+        request=request,
+        provider=provider,
+        document_structurer=document_structurer,
+    )
     write_text_output(args.output, result.text)
     if args.metadata_out:
         write_json_output(args.metadata_out, result.to_dict())

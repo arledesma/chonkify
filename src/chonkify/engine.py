@@ -18,6 +18,11 @@ from chonkify.types import (
     SelectedUnit,
 )
 
+try:
+    from chonkify.document_ai import DocumentStructurer
+except ImportError:
+    DocumentStructurer = None
+
 EMBEDDING_DIMENSIONS = 768
 
 
@@ -593,6 +598,60 @@ def _select_cpc_mmr_units(
 
 
 # ---------------------------------------------------------------------------
+# Structured-document bridge
+# ---------------------------------------------------------------------------
+
+def _build_units_from_structured(
+    structured_docs: list[Any],
+    doc_list: list[Document],
+    encoder: tiktoken.Encoding,
+    max_unit_tokens: int,
+) -> tuple[list[CompressionUnit], list[str]]:
+    """Convert StructuredDocument objects into CPC candidate units and key sentences."""
+    units: list[CompressionUnit] = []
+    key_sentences: list[str] = []
+    global_unit_index = 0
+
+    for doc_index, sdoc in enumerate(structured_docs):
+        document = sdoc.source_document
+
+        for block_index, section in enumerate(sdoc.sections):
+            for chunk_index, sentence in enumerate(section.sentences):
+                token_count = _token_count(sentence, encoder)
+                if token_count == 0:
+                    continue
+                unit = CompressionUnit(
+                    unit_id=f"{document.source_id}:b{block_index}:c{chunk_index}",
+                    source_id=document.source_id,
+                    source_name=document.source_name,
+                    text=sentence,
+                    token_count=token_count,
+                    document_index=doc_index,
+                    unit_index=global_unit_index,
+                    block_index=block_index,
+                    chunk_index=chunk_index,
+                )
+                units.append(unit)
+                global_unit_index += 1
+
+        for sentence in sdoc.salient_sentences:
+            if sentence not in key_sentences:
+                key_sentences.append(sentence)
+
+    # If no salient sentences from structurer, fall back to section-first heuristic
+    if not key_sentences:
+        sections_as_tuples = []
+        for sdoc in structured_docs:
+            for section in sdoc.sections:
+                sections_as_tuples.append(
+                    (section.heading or "", list(section.sentences))
+                )
+        key_sentences = _build_key_sentences(sections_as_tuples, encoder)
+
+    return units, key_sentences
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -600,6 +659,7 @@ def compress_documents(
     documents: Sequence[Document],
     request: CompressionRequest,
     provider: EmbeddingProvider,
+    document_structurer: Any = None,
 ) -> CompressionResult:
     """Compress one or more documents using the benchmark-winning CPC/MMR path."""
     encoder = tiktoken.get_encoding(request.encoding_name)
@@ -608,8 +668,21 @@ def compress_documents(
     # Count original tokens
     original_tokens = sum(_token_count(doc.text, encoder) for doc in doc_list)
 
-    # Build candidate units
-    units = _build_cpc_candidate_units(doc_list, encoder, request.max_unit_tokens)
+    # When a document_structurer is provided, use it for section/sentence extraction
+    if document_structurer is not None:
+        structured_docs = document_structurer.structure_documents(doc_list, encoder=encoder)
+        units, key_sentences = _build_units_from_structured(
+            structured_docs, doc_list, encoder, request.max_unit_tokens,
+        )
+    else:
+        units = _build_cpc_candidate_units(doc_list, encoder, request.max_unit_tokens)
+        all_sections: list[tuple[str, list[str]]] = []
+        for doc in doc_list:
+            prepared = _prepare_document_text(doc, encoder, request.max_unit_tokens)
+            sections = _sectionize_text(prepared, encoder, request.max_unit_tokens)
+            all_sections.extend(sections)
+        key_sentences = _build_key_sentences(all_sections, encoder)
+
     if not units:
         return CompressionResult(
             strategy="cpc_mmr/key_sentence_mmr",
@@ -623,14 +696,6 @@ def compress_documents(
             units_considered=0,
             final_output_truncated=False,
         )
-
-    # Build key sentences for relevance scoring
-    all_sections: list[tuple[str, list[str]]] = []
-    for doc in doc_list:
-        prepared = _prepare_document_text(doc, encoder, request.max_unit_tokens)
-        sections = _sectionize_text(prepared, encoder, request.max_unit_tokens)
-        all_sections.extend(sections)
-    key_sentences = _build_key_sentences(all_sections, encoder)
 
     # Embed all candidate units and key sentences
     unit_texts = [u.text for u in units]
