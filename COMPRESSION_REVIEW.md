@@ -118,6 +118,54 @@ Since no pure compression level produces a production-safe result, but the 55-60
 
 This hybrid approach captures the token savings of compression while protecting the specific rules that extractive algorithms consistently undervalue.
 
+## v0.3.0 Engine Update: Revised Selection Algorithm
+
+The v0.3.0 release updates the CPC/MMR selection algorithm with several structural changes:
+
+- **Force-selects the highest-relevance candidate** before entering the main MMR loop, seeding the selection with the most informative unit.
+- **Incremental redundancy tracking** via a pre-allocated list updated per selection, rather than recomputing redundancy from scratch each iteration.
+- **Greedy budget pruning** removes over-budget candidates from the remaining set during iteration, reducing wasted comparisons.
+- **Document-order output** — selected indices are sorted after selection, producing output that follows the original document structure.
+
+The same test document was re-evaluated at 30-60% budgets using the updated engine. All budget targets were met (budget_ok_rate = 1.0).
+
+### Adequacy Ratings by Requirement (v0.3.0)
+
+| Requirement | 30% | 40% | 45% | 50% | 55% | 60% |
+| - | - | - | - | - | - | - |
+| Workflow ordering | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| Tool-call ordering | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| Tool-call discipline | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| Output template | PARTIAL | PARTIAL | PARTIAL | PRESERVED | PRESERVED | PRESERVED |
+| Precondition rules | PARTIAL | PARTIAL | PARTIAL | PRESERVED | PRESERVED | PRESERVED |
+| Platform-specific prohibitions | MISSING | MISSING | MISSING | MISSING | PRESERVED | PRESERVED |
+| Action sequencing | MISSING | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
+| **Verdict** | NOT ADEQUATE | NEEDS RESTORATION | NEEDS RESTORATION | NEEDS RESTORATION | NEEDS RESTORATION | NEEDS RESTORATION |
+
+### Comparison with v0.2.x Engine (40-60%)
+
+| Requirement | 40% | 45% | 50% | 55% | 60% |
+| - | - | - | - | - | - |
+| Workflow ordering | = | = | = | = | = |
+| Tool-call ordering | MISSING→PARTIAL | = | = | = | = |
+| Tool-call discipline | = | = | = | = | MISSING→PARTIAL |
+| Output template | = | = | = | = | = |
+| Precondition rules | PRESERVED→PARTIAL | PRESERVED→PARTIAL | = | = | = |
+| Platform-specific prohibitions | PRESERVED→MISSING | PRESERVED→MISSING | PRESERVED→MISSING | = | = |
+| Action sequencing | MISSING→PARTIAL | = | = | = | = |
+
+### Analysis of Changes
+
+**Improvements:** The force-selection seed and incremental redundancy tracking improve coverage of structural and workflow content. Tool-call ordering is now partially preserved at 40% (previously missing), tool-call discipline is retained at 60% (previously dropped), and action sequencing guidance appears at 40% (previously missing).
+
+**Regressions:** The updated relevance-first seeding shifts the algorithm's preference toward longer, higher-information-density passages at tight budgets. This deprioritizes short, isolated safety rules — specifically entity validation preconditions and platform-specific prohibitions — which the previous engine happened to preserve at 40-50% due to their high uniqueness scores. These rules are now lost below 55%.
+
+**Net assessment:** At the recommended 55-60% range, results are equivalent or slightly improved. Below 55%, the tradeoff favors structural coherence over isolated safety rules. The hybrid compression recommendation remains unchanged: compress to ~55%, then manually restore the consistently-dropped rule categories.
+
+### 30% Budget (New Baseline)
+
+The 30% level (1174 tokens, 3.39x compression ratio) was not previously evaluated. At this budget, only partial output template structure survives. All safety rules, ordering directives, and sequencing logic are missing. This confirms the review's earlier finding that compression below 40% is not viable for rule-dense instructional documents.
+
 ## Guidance for Practitioners
 
 ### Choosing a target token budget
